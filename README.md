@@ -1,14 +1,21 @@
-[![Build Status](https://travis-ci.org/valyala/fastjson.svg)](https://travis-ci.org/valyala/fastjson)
-[![GoDoc](https://godoc.org/github.com/valyala/fastjson?status.svg)](http://godoc.org/github.com/valyala/fastjson)
-[![Go Report](https://goreportcard.com/badge/github.com/valyala/fastjson)](https://goreportcard.com/report/github.com/valyala/fastjson)
-[![codecov](https://codecov.io/gh/valyala/fastjson/branch/master/graph/badge.svg)](https://codecov.io/gh/valyala/fastjson)
+# fastjson
 
-# fastjson - fast JSON parser and validator for Go
+[![GoDoc Widget]][GoDoc] [![Go Report Card Widget]][Go Report Card]
 
+[GoDoc]: https://godoc.org/github.com/aperturerobotics/fastjson
+[GoDoc Widget]: https://godoc.org/github.com/aperturerobotics/fastjson?status.svg
+[Go Report Card Widget]: https://goreportcard.com/badge/github.com/aperturerobotics/fastjson
+[Go Report Card]: https://goreportcard.com/report/github.com/aperturerobotics/fastjson
+
+**fastjson** is an alternative to **encoding/json** which does not use reflection.
+
+**This is a fork of the [upstream project] with some improvements.**
+
+[upstream project]: https://github.com/valyala/fastjson
 
 ## Features
 
-  * Fast. As usual, up to 15x faster than the standard [encoding/json](https://golang.org/pkg/encoding/json/).
+  * Up to 15x faster than the standard [encoding/json](https://golang.org/pkg/encoding/json/).
     See [benchmarks](#benchmarks).
   * Parses arbitrary JSON without schema, reflection, struct magic and code generation
     contrary to [easyjson](https://github.com/mailru/easyjson).
@@ -200,7 +207,7 @@ BenchmarkValidate/twitter/fastjson       	    2000	   1036796 ns/op	 609.10 MB/s
 
 ## FAQ
 
-  * Q: _There are a ton of other high-perf packages for JSON parsing in Go. Why creating yet another package?_
+  * Q: _There are a ton of other high-perf packages for JSON parsing in Go. Why create yet another package?_
     A: Because other packages require either rigid JSON schema via struct magic
        and code generation or perform poorly when multiple unrelated fields
        must be obtained from the parsed JSON.
