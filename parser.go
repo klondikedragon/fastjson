@@ -2,10 +2,11 @@ package fastjson
 
 import (
 	"fmt"
-	"github.com/aperturerobotics/fastjson/fastfloat"
 	"strconv"
 	"strings"
 	"unicode/utf16"
+
+	"github.com/aperturerobotics/fastjson/fastfloat"
 )
 
 // Parser parses JSON.
@@ -327,28 +328,41 @@ func parseObject(s string, c *cache, depth int) (*Value, string, error) {
 }
 
 func escapeString(dst []byte, s string) []byte {
-	if !hasSpecialChars(s) {
-		// Fast path - nothing to escape.
-		dst = append(dst, '"')
-		dst = append(dst, s...)
-		dst = append(dst, '"')
-		return dst
-	}
-
-	// Slow path.
-	return strconv.AppendQuote(dst, s)
-}
-
-func hasSpecialChars(s string) bool {
-	if strings.IndexByte(s, '"') >= 0 || strings.IndexByte(s, '\\') >= 0 {
-		return true
-	}
+	dst = append(dst, '"')
 	for i := 0; i < len(s); i++ {
-		if s[i] < 0x20 {
-			return true
+		c := s[i]
+		switch {
+		case c == '"':
+			// quotation mark
+			dst = append(dst, []byte{'\\', '"'}...)
+		case c == '\\':
+			// reverse solidus
+			dst = append(dst, []byte{'\\', '\\'}...)
+		case c >= 0x20:
+			// default, rest below are control chars
+			dst = append(dst, c)
+		case c == 0x08:
+			dst = append(dst, []byte{'\\', 'b'}...)
+		case c < 0x09:
+			dst = append(dst, []byte{'\\', 'u', '0', '0', '0', '0' + c}...)
+		case c == 0x09:
+			dst = append(dst, []byte{'\\', 't'}...)
+		case c == 0x0a:
+			dst = append(dst, []byte{'\\', 'n'}...)
+		case c == 0x0c:
+			dst = append(dst, []byte{'\\', 'f'}...)
+		case c == 0x0d:
+			dst = append(dst, []byte{'\\', 'r'}...)
+		case c < 0x10:
+			dst = append(dst, []byte{'\\', 'u', '0', '0', '0', 0x57 + c}...)
+		case c < 0x1a:
+			dst = append(dst, []byte{'\\', 'u', '0', '0', '1', 0x20 + c}...)
+		case c < 0x20:
+			dst = append(dst, []byte{'\\', 'u', '0', '0', '1', 0x47 + c}...)
 		}
 	}
-	return false
+	dst = append(dst, '"')
+	return dst
 }
 
 func unescapeStringBestEffort(s string) string {
@@ -884,6 +898,19 @@ func (v *Value) GetUint64(keys ...string) uint64 {
 		return 0
 	}
 	return fastfloat.ParseUint64BestEffort(v.s)
+}
+
+// GetNumberAsStringBytes returns string representation of the numeric value by the given keys path.
+//
+// Array indexes may be represented as decimal numbers in keys.
+//
+// nil is returned for non-existing keys path or for invalid value type.
+func (v *Value) GetNumberAsStringBytes(keys ...string) []byte {
+	v = v.Get(keys...)
+	if v == nil || v.Type() != TypeNumber {
+		return nil
+	}
+	return s2b(v.s)
 }
 
 // GetStringBytes returns string value by the given keys path.

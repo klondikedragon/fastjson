@@ -1,6 +1,8 @@
 package fastjson
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strings"
@@ -66,6 +68,40 @@ func TestParseRawNumber(t *testing.T) {
 		f("{", "{")
 		f("\"", "\"")
 	})
+}
+
+func TestEscapeString(t *testing.T) {
+	t.Run("controlchars", func(t *testing.T) {
+		var r rune
+		for r = 0; r <= 0x20; r++ {
+			testEscapeString(t, string(r))
+			testEscapeString(t, string(r)+" hello")
+			testEscapeString(t, "hello "+string(r))
+			testEscapeString(t, "hello "+string(r)+" world")
+		}
+	})
+	t.Run("misc", func(t *testing.T) {
+		testEscapeString(t, `hello � world`)
+		testEscapeString(t, "hello \u0014 world")
+		testEscapeString(t, "newline\ntab\ndoublequote\"reversesolidus\\solidus/formfeed\fcarriagereturn\r")
+	})
+	t.Run("unicode", func(t *testing.T) {
+		testEscapeString(t, `你好，世界`)
+		testEscapeString(t, "こんにちは、世界")
+		testEscapeString(t, "ສະບາຍດີ, ໂລກ")
+	})
+}
+
+func testEscapeString(t *testing.T, s string) {
+	t.Helper()
+
+	// Check that fastjson encoding is identical to standard library encoding
+	expected, _ := json.Marshal(s)
+	a := Arena{}
+	actual := a.NewString(s).MarshalTo(nil)
+	if !bytes.Equal(actual, expected) {
+		t.Fatalf("expected='%s', actual='%s'", expected, actual)
+	}
 }
 
 func TestUnescapeStringBestEffort(t *testing.T) {
@@ -278,7 +314,8 @@ func TestValueGetTyped(t *testing.T) {
 		"zero_float2": -0e123,
 		"inf_float": Inf,
 		"minus_inf_float": -Inf,
-		"nan": nan
+		"nan": nan,
+		"tiny_number": 0.0000000005
 	}`)
 	if err != nil {
 		t.Fatalf("unexpected error: %s", err)
@@ -324,7 +361,7 @@ func TestValueGetTyped(t *testing.T) {
 		t.Fatalf("unexpected value; got %d; want %d", n, 123)
 	}
 	n64 := v.GetInt64("foo")
-	if n != 123 {
+	if n64 != 123 {
 		t.Fatalf("unexpected value; got %d; want %d", n64, 123)
 	}
 	un := v.GetUint("foo")
@@ -335,21 +372,29 @@ func TestValueGetTyped(t *testing.T) {
 	if un != 123 {
 		t.Fatalf("unexpected value; got %d; want %d", un64, 123)
 	}
+	nstr := v.GetNumberAsStringBytes("foo")
+	if b2s(nstr) != "123" {
+		t.Fatalf("unexpected value; got %s; want %s", nstr, "123")
+	}
 	n = v.GetInt("bar")
 	if n != 0 {
 		t.Fatalf("unexpected non-zero value; got %d", n)
 	}
 	n64 = v.GetInt64("bar")
-	if n != 0 {
+	if n64 != 0 {
 		t.Fatalf("unexpected non-zero value; got %d", n64)
 	}
 	un = v.GetUint("bar")
-	if n != 0 {
+	if un != 0 {
 		t.Fatalf("unexpected non-zero value; got %d", un)
 	}
 	un64 = v.GetUint64("bar")
-	if n != 0 {
-		t.Fatalf("unexpected non-zero value; got %d", n64)
+	if un64 != 0 {
+		t.Fatalf("unexpected non-zero value; got %d", un64)
+	}
+	nstr = v.GetNumberAsStringBytes("bar")
+	if nstr != nil {
+		t.Fatalf("unexpected non-nil value; got %d", nstr)
 	}
 	f := v.GetFloat64("foo")
 	if f != 123.0 {
@@ -427,6 +472,11 @@ func TestValueGetTyped(t *testing.T) {
 	}
 	if !math.IsNaN(nanf) {
 		t.Fatalf("unexpected nan value: %f. Expecting %f", nanf, math.NaN())
+	}
+
+	tiny_number := v.GetNumberAsStringBytes("tiny_number")
+	if b2s(tiny_number) != "0.0000000005" {
+		t.Fatalf("unexpected tiny_number value; got %s; want %s", tiny_number, "0.0000000005")
 	}
 }
 
