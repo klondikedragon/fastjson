@@ -129,3 +129,17 @@ func (v *Value) SetArrayItem(idx int, value *Value) {
 	}
 	v.a[idx] = value
 }
+
+// SetArrayLength lengthens or shortens (cuts off the end) of the
+// array v to the given length.
+func (v *Value) SetArrayLength(length int) {
+	if v == nil || v.t != TypeArray {
+		return
+	}
+	for length > len(v.a) {
+		v.a = append(v.a, valueNull)
+	}
+	if len(v.a) > length {
+		v.a = v.a[:length]
+	}
+}
