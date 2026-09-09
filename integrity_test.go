@@ -272,3 +272,66 @@ func TestIntegrityCrossAllocatorResetOrders(t *testing.T) {
 		}
 	})
 }
+
+func TestSetStringValue(t *testing.T) {
+	var a Arena
+	root := a.NewObject()
+	v := a.NewString("first")
+	root.Set("k", v)
+
+	v.SetStringValue(&a, `second "quoted"`)
+	if got := string(root.MarshalTo(nil)); got != `{"k":"second \"quoted\""}` {
+		t.Fatalf("unexpected json: %s", got)
+	}
+	if v.Type() != TypeString {
+		t.Fatalf("unexpected type: %s", v.Type())
+	}
+}
+
+func TestSetStringValueOnFormerObject(t *testing.T) {
+	var a Arena
+	v := a.NewObject()
+	v.Set("a", a.NewNumberInt(1))
+	v.Set("b", a.NewNumberInt(2))
+	members := v.o.kvs
+
+	v.SetStringValue(&a, "now a string")
+
+	if got := string(v.MarshalTo(nil)); got != `"now a string"` {
+		t.Fatalf("unexpected json: %s", got)
+	}
+	// The node keeps its own member storage: nothing was handed to, or taken
+	// from, another value.
+	if &v.o.kvs[0] != &members[0] || len(v.o.kvs) != len(members) {
+		t.Fatal("member storage changed identity")
+	}
+	if v.o.self != v || v.self != v {
+		t.Fatal("node stopped owning its own storage")
+	}
+
+	// Turning it back into an object reuses that same storage.
+	v.o.Reset()
+	v.t = TypeObject
+	v.Set("c", a.NewNumberInt(3))
+	if got := string(v.MarshalTo(nil)); got != `{"c":3}` {
+		t.Fatalf("unexpected json after reuse: %s", got)
+	}
+	if &v.o.kvs[0] != &members[0] {
+		t.Fatal("member storage was reallocated")
+	}
+}
+
+func TestSetStringValueChecksOwnership(t *testing.T) {
+	var a Arena
+	donor := a.NewString("donor")
+	target := a.NewObject()
+	copyValueStruct(target, donor)
+
+	err := recoverIntegrity(t, func() { target.SetStringValue(&a, "x") })
+	if err == nil {
+		t.Fatal("SetStringValue did not report the copied node")
+	}
+	if err.Site != "Value.SetStringValue" {
+		t.Fatalf("unexpected site: %s", err.Site)
+	}
+}

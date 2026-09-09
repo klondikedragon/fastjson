@@ -155,3 +155,23 @@ func (v *Value) SetArrayLength(length int) {
 		v.a = v.a[:length]
 	}
 }
+
+// SetStringValue turns v into a JSON string holding s, in place.
+//
+// This is the supported way to change an existing value into a string: it
+// writes only the scalar and the type, leaving v's own member and child
+// storage where it is. Assigning a whole Value over another, as in
+// *v = *a.NewString(s), instead copies the source's member and child headers
+// into v, after which two values name one backing array; the library reports
+// that as *IntegrityError.
+//
+// s is escaped into the buffer of a, so the resulting value is valid until
+// Reset is called on a. It does not need to outlive this call.
+func (v *Value) SetStringValue(a *Arena, s string) {
+	if v == nil {
+		return
+	}
+	v.checkIntegrity("Value.SetStringValue")
+	v.s = a.allocateEscapedString(s)
+	v.t = typeRawString
+}

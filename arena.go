@@ -62,9 +62,7 @@ func (a *Arena) NewArray() *Value {
 func (a *Arena) NewString(s string) *Value {
 	v := a.c.getValue()
 	v.t = typeRawString
-	bLen := len(a.b)
-	a.b = escapeString(a.b, s)
-	v.s = b2s(a.b[bLen+1 : len(a.b)-1])
+	v.s = a.allocateEscapedString(s)
 	return v
 }
 
@@ -74,9 +72,7 @@ func (a *Arena) NewString(s string) *Value {
 func (a *Arena) NewStringBytes(b []byte) *Value {
 	v := a.c.getValue()
 	v.t = typeRawString
-	bLen := len(a.b)
-	a.b = escapeString(a.b, b2s(b))
-	v.s = b2s(a.b[bLen+1 : len(a.b)-1])
+	v.s = a.allocateEscapedString(b2s(b))
 	return v
 }
 
@@ -122,6 +118,17 @@ func (a *Arena) NewNumberStringBytes(b []byte) *Value {
 	v.t = TypeNumber
 	v.s = a.AllocateStringFromStringBytes(b)
 	return v
+}
+
+// allocateEscapedString escapes s into the arena buffer and returns the
+// escaped body without the surrounding quotes, which is the form a string
+// value stores.
+//
+// The result is valid until Reset is called on a.
+func (a *Arena) allocateEscapedString(s string) string {
+	bLen := len(a.b)
+	a.b = escapeString(a.b, s)
+	return b2s(a.b[bLen+1 : len(a.b)-1])
 }
 
 // Allocates room for the string from the arena for the string from the given string bytes
