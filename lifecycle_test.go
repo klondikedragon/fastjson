@@ -63,7 +63,7 @@ func TestLifecycleArenaValueAfterResetAndReuse(t *testing.T) {
 
 	// Reuse on its own creates no storage sharing, which is the half the
 	// audit is responsible for.
-	requireNoOverlaps(t, AuditStorage([]*Arena{&a}, nil))
+	requireNoOverlaps(t, AuditStorage([]*Arena{&a}, nil, nil))
 }
 
 func TestLifecycleParserValueAfterReparse(t *testing.T) {
@@ -89,7 +89,7 @@ func TestLifecycleParserValueAfterReparse(t *testing.T) {
 	if IntegrityHealCount() != healsBefore {
 		t.Fatal("reuse of an owned slot must not be contained")
 	}
-	requireNoOverlaps(t, AuditStorage(nil, []*Parser{&p}))
+	requireNoOverlaps(t, AuditStorage(nil, []*Parser{&p}, nil))
 }
 
 func TestLifecycleParserValueAfterEmptyReparse(t *testing.T) {
@@ -121,7 +121,7 @@ func TestLifecycleBorrowedValueStoredInAnotherAllocator(t *testing.T) {
 	root := holder.NewObject()
 	root.Set("borrowed", lent)
 
-	requireNoOverlaps(t, AuditStorage([]*Arena{&lender, &holder}, nil))
+	requireNoOverlaps(t, AuditStorage([]*Arena{&lender, &holder}, nil, nil))
 
 	lender.Reset()
 	churn(&lender)
@@ -130,5 +130,5 @@ func TestLifecycleBorrowedValueStoredInAnotherAllocator(t *testing.T) {
 	if got := string(root.MarshalTo(nil)); strings.Contains(got, "payload") {
 		t.Fatalf("expected the lent slot to have been reused: %s", got)
 	}
-	requireNoOverlaps(t, AuditStorage([]*Arena{&lender, &holder}, nil))
+	requireNoOverlaps(t, AuditStorage([]*Arena{&lender, &holder}, nil, nil))
 }

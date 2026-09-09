@@ -9,8 +9,11 @@ func b2s(b []byte) string {
 }
 
 func s2b(s string) (b []byte) {
-	// Alias the string's backing array as a read-only byte slice without
-	// allocating; the result must not be mutated.
+	// Alias the string's backing array as a byte slice without allocating.
+	// Writing through the result is only correct where the caller knows the
+	// string points into a buffer it owns, which is how key and value
+	// unescaping rewrites the parser working copy in place. For any string
+	// that came from outside the package the result is read only.
 	return unsafe.Slice(unsafe.StringData(s), len(s))
 }
 

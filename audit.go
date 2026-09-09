@@ -1,5 +1,11 @@
 package fastjson
 
+// AuditStorage is a test and diagnostic helper that lives in the exported API
+// because it must read the chunk lists inside an Arena, a Parser and a
+// Scanner, which are package private. An export_test.go hook was the other
+// candidate home; it would not reach the tests of packages that build on this
+// one, which is where the shapes it looks for actually appear.
+
 import (
 	"fmt"
 	"sort"
@@ -52,9 +58,9 @@ func (o StorageOverlap) String() string {
 	return fmt.Sprintf("%s overlaps %s", o.A, o.B)
 }
 
-// AuditStorage walks every value slot held by the given arenas and parsers and
-// reports every pair of distinct slots whose member or child storage shares
-// backing memory.
+// AuditStorage walks every value slot held by the given arenas, parsers and
+// scanners and reports every pair of distinct slots whose member or child
+// storage shares backing memory.
 //
 // The walk covers every chunk of every allocator, every slot a chunk retains
 // beyond the ones currently handed out, and both the member and the child
@@ -66,7 +72,7 @@ func (o StorageOverlap) String() string {
 //
 // This is a test and diagnostic helper. It allocates, it is quadratic in the
 // number of overlapping ranges, and it must not be called on a hot path.
-func AuditStorage(arenas []*Arena, parsers []*Parser) []StorageOverlap {
+func AuditStorage(arenas []*Arena, parsers []*Parser, scanners []*Scanner) []StorageOverlap {
 	seen := make(map[*Value]struct{})
 	var ranges []StorageRange
 
@@ -103,12 +109,17 @@ func AuditStorage(arenas []*Arena, parsers []*Parser) []StorageOverlap {
 
 	for _, a := range arenas {
 		if a != nil {
-			walkSlots(&a.c, visit)
+			forEachSlot(&a.c, true, visit)
 		}
 	}
 	for _, p := range parsers {
 		if p != nil {
-			walkSlots(&p.c, visit)
+			forEachSlot(&p.c, true, visit)
+		}
+	}
+	for _, sc := range scanners {
+		if sc != nil {
+			forEachSlot(&sc.c, true, visit)
 		}
 	}
 
@@ -136,15 +147,4 @@ func AuditStorage(arenas []*Arena, parsers []*Parser) []StorageOverlap {
 		}
 	}
 	return out
-}
-
-// walkSlots calls f for every slot in every chunk reachable from c, including
-// slots the chunk retains beyond the ones handed out.
-func walkSlots(c *cache, f func(*Value)) {
-	for ch := c; ch != nil; ch = ch.nx {
-		vs := ch.vs[:cap(ch.vs)]
-		for i := range vs {
-			f(&vs[i])
-		}
-	}
 }

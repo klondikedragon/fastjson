@@ -22,6 +22,10 @@ func (pp *ParserPool) Get() *Parser {
 
 // Put returns p to pp.
 //
+// Unlike ArenaPool.Put this does not reset p. Parse resets the cache on entry,
+// so a parser taken from the pool releases the previous document before it
+// builds the next one; resetting here as well would clear every slot twice.
+//
 // p and objects recursively returned from p cannot be used after p
 // is put into pp.
 func (pp *ParserPool) Put(p *Parser) {

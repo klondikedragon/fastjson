@@ -86,6 +86,22 @@ const (
 	macAllocatedCacheSize = 1024
 )
 
+// forEachSlot calls f for every value slot in every chunk reachable from c.
+//
+// When includeRetained is set it also visits the slots a chunk holds past the
+// ones handed out, which is where storage kept for reuse lives.
+func forEachSlot(c *cache, includeRetained bool, f func(*Value)) {
+	for ch := c; ch != nil; ch = ch.nx {
+		vs := ch.vs
+		if includeRetained {
+			vs = vs[:cap(vs)]
+		}
+		for i := range vs {
+			f(&vs[i])
+		}
+	}
+}
+
 func (c *cache) getValue() *Value {
 	var (
 		addNext bool

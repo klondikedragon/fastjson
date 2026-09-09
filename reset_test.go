@@ -12,23 +12,14 @@ import (
 // including slots past len that the chunk retains for reuse.
 func allSlots(c *cache) []*Value {
 	var out []*Value
-	for ch := c; ch != nil; ch = ch.nx {
-		vs := ch.vs[:cap(ch.vs)]
-		for i := range vs {
-			out = append(out, &vs[i])
-		}
-	}
+	forEachSlot(c, true, func(v *Value) { out = append(out, v) })
 	return out
 }
 
 // liveSlots returns a pointer to every slot handed out so far by c.
 func liveSlots(c *cache) []*Value {
 	var out []*Value
-	for ch := c; ch != nil; ch = ch.nx {
-		for i := range ch.vs {
-			out = append(out, &ch.vs[i])
-		}
-	}
+	forEachSlot(c, false, func(v *Value) { out = append(out, v) })
 	return out
 }
 

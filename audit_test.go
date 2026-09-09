@@ -4,9 +4,9 @@ import (
 	"testing"
 )
 
-func overlapsFor(t *testing.T, arenas []*Arena, parsers []*Parser) []StorageOverlap {
+func overlapsFor(t *testing.T, arenas []*Arena, parsers []*Parser, scanners ...*Scanner) []StorageOverlap {
 	t.Helper()
-	return AuditStorage(arenas, parsers)
+	return AuditStorage(arenas, parsers, scanners)
 }
 
 func requireNoOverlaps(t *testing.T, found []StorageOverlap) {
@@ -161,4 +161,39 @@ func TestAuditFindsTheStructCopyShape(t *testing.T) {
 	// Containment removes the finding.
 	recipient.Reset()
 	requireNoOverlaps(t, overlapsFor(t, []*Arena{&donor, &recipient}, nil))
+}
+
+// TestAuditCoversScannerSlots checks the third cache: a Scanner owns slots of
+// its own and is the source side of DeepCopyValue, so a shape that shares
+// storage between a scanned value and an arena value has to be visible.
+func TestAuditCoversScannerSlots(t *testing.T) {
+	var sc Scanner
+	sc.Init(`{"a":[1,2,3]} {"b":[4,5]}`)
+	if !sc.Next() {
+		t.Fatalf("cannot scan: %s", sc.Error())
+	}
+	scanned := sc.Value().Get("a")
+	if scanned == nil {
+		t.Fatal("missing scanned array")
+	}
+
+	var a Arena
+	copied := a.DeepCopyValue(sc.Value())
+	if got := string(copied.MarshalTo(nil)); got != `{"a":[1,2,3]}` {
+		t.Fatalf("unexpected deep copy: %s", got)
+	}
+	// A deep copy allocates its own storage, so nothing is shared.
+	requireNoOverlaps(t, overlapsFor(t, []*Arena{&a}, nil, &sc))
+
+	// A shallow reuse of the scanner's child array is.
+	borrowed := a.NewArray()
+	borrowed.a = scanned.a
+	found := overlapsFor(t, []*Arena{&a}, nil, &sc)
+	requireOverlap(t, found, scanned, borrowed, StorageChildren)
+
+	// Without the scanner in the walk the same shape is invisible, which is
+	// what the parameter buys.
+	if len(overlapsFor(t, []*Arena{&a}, nil)) != 0 {
+		t.Fatal("expected the scanner side to be unreachable when it is not passed")
+	}
 }
