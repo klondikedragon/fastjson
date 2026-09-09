@@ -106,3 +106,43 @@ See also [examples](https://godoc.org/github.com/aperturerobotics/fastjson#pkg-e
     for distinct suffix paths.
   * Prefer iterating over array returned from [Value.GetArray](https://godoc.org/github.com/aperturerobotics/fastjson#Object.Visit)
     with a range loop instead of calling `Value.Get*` for each array item.
+
+
+## Slot ownership checks and their cost
+
+A `Value` is handed out from an allocator slot and must never be copied by
+struct assignment.
+A copy names the original's member and child storage, so a later write through
+either reaches both, and whichever slot is recycled first releases storage the
+other still uses.
+`Value` and `Object` therefore carry a zero-sized field that makes `go vet`
+report any such copy, and every entry point checks who owns the slot it was
+reached through: mutators, readers, `MarshalTo` and `Type` panic with
+`*IntegrityError`, while allocation and reset drop the foreign headers, count
+the drop in `IntegrityHealCount`, and continue.
+`SetStrictIntegrity(true)` turns those two sites into panics as well.
+Use `Value.SetStringValue` to turn an existing node into a string in place;
+that is the supported replacement for assigning a whole value over another.
+
+The checks and the reset they go with are not free.
+Measured against the same tree without them, single core, alternating order,
+minimum of twelve runs on two machines:
+
+| benchmark | cost |
+|---|---|
+| `Parse` small, medium, large, twitter | +15% to +31% |
+| `Parse` canada | +37% to +56% |
+| `MarshalTo` small, large, twitter | within noise |
+| `MarshalTo` canada | +17% |
+| `ArenaTypicalUse` | +12% |
+| allocations per operation | unchanged |
+
+Almost none of that is the ownership compare itself, which is one pointer load
+and one branch per visit.
+It comes from two things: reset now clears every slot the allocator handed out,
+which is work proportional to the number of values in the document where it
+used to be a single truncation, and `Value` grew from 80 to 88 bytes, so a walk
+over a large document touches more memory.
+The two large-document rows are where both effects land at once.
+This is the price of a document that cannot silently share storage with
+another; do not re-litigate it from a benchmark diff alone.
