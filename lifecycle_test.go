@@ -31,7 +31,7 @@ func TestLifecycleArenaValueAfterReset(t *testing.T) {
 	if got := string(borrowed.MarshalTo(nil)); got != "null" {
 		t.Fatalf("borrowed value after reset marshalled as %s; want null", got)
 	}
-	if borrowed.self != borrowed {
+	if borrowed.o.self != borrowed {
 		t.Fatal("reset changed slot ownership")
 	}
 }
@@ -50,7 +50,7 @@ func TestLifecycleArenaValueAfterResetAndReuse(t *testing.T) {
 	// the ownership check has nothing to report. The borrowed pointer now
 	// reads the new generation: this is the caller's contract, not a
 	// condition the library can detect.
-	if borrowed.self != borrowed {
+	if borrowed.o.self != borrowed {
 		t.Fatal("a reused slot must own itself")
 	}
 	got := string(borrowed.MarshalTo(nil))
@@ -79,7 +79,7 @@ func TestLifecycleParserValueAfterReparse(t *testing.T) {
 		t.Fatalf("cannot parse: %s", err)
 	}
 
-	if borrowed.self != borrowed {
+	if borrowed.o.self != borrowed {
 		t.Fatal("a reused slot must own itself")
 	}
 	got := string(borrowed.MarshalTo(nil))

@@ -58,11 +58,15 @@ func IntegrityHealCount() uint64 {
 
 // checkIntegrity panics unless v owns the slot it occupies.
 //
+// Ownership is recorded in one word, the self pointer of the embedded object,
+// so a struct assignment of a whole Value and a struct assignment of an Object
+// alone both show up here.
+//
 // A nil self marks a value that no allocator handed out, such as a
 // package-level singleton or a Value the caller declared, and is allowed
 // everywhere.
 func (v *Value) checkIntegrity(site string) {
-	if v.self != nil && v.self != v {
+	if v.o.self != nil && v.o.self != v {
 		panic(&IntegrityError{Site: site})
 	}
 }
@@ -86,14 +90,13 @@ func (v *Value) dropForeignHeaders() {
 	v.o.keysUnescaped = false
 	v.o.self = nil
 	v.a = nil
-	v.self = nil
 	integrityHeals.Add(1)
 }
 
 // containForeignSlot reports whether v named a slot it does not own and, in
 // that case, contains the condition. It panics in strict mode.
 func (v *Value) containForeignSlot(site string) bool {
-	if v.self == nil || v.self == v {
+	if v.o.self == nil || v.o.self == v {
 		return false
 	}
 	if strictIntegrity.Load() {

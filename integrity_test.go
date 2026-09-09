@@ -14,6 +14,14 @@ func copyValueStruct(dst, src *Value) {
 		*(*[unsafe.Sizeof(Value{})]byte)(unsafe.Pointer(src))
 }
 
+// copyObjectStruct performs the struct assignment of an Object that callers
+// must not make. An Object obtained from GetObject is as copyable a shape as a
+// Value, so it gets the same coverage.
+func copyObjectStruct(dst, src *Object) {
+	*(*[unsafe.Sizeof(Object{})]byte)(unsafe.Pointer(dst)) =
+		*(*[unsafe.Sizeof(Object{})]byte)(unsafe.Pointer(src))
+}
+
 // recoverIntegrity runs f and returns the *IntegrityError it panicked with, or
 // nil if it returned normally. Any other panic is re-raised.
 func recoverIntegrity(t *testing.T, f func()) (err *IntegrityError) {
@@ -48,11 +56,8 @@ func TestIntegritySlotsAreSelfOwned(t *testing.T) {
 		t.Fatalf("expected multiple chunks; got %d", n)
 	}
 	for i, v := range liveSlots(&p.c) {
-		if v.self != v {
-			t.Fatalf("parser slot %d does not own itself: self=%p slot=%p", i, v.self, v)
-		}
 		if v.o.self != v {
-			t.Fatalf("parser slot %d has an object owned by %p, want %p", i, v.o.self, v)
+			t.Fatalf("parser slot %d does not own itself: self=%p slot=%p", i, v.o.self, v)
 		}
 	}
 
@@ -67,11 +72,8 @@ func TestIntegritySlotsAreSelfOwned(t *testing.T) {
 		t.Fatalf("expected multiple chunks; got %d", n)
 	}
 	for i, v := range liveSlots(&a.c) {
-		if v.self != v {
-			t.Fatalf("arena slot %d does not own itself: self=%p slot=%p", i, v.self, v)
-		}
 		if v.o.self != v {
-			t.Fatalf("arena slot %d has an object owned by %p, want %p", i, v.o.self, v)
+			t.Fatalf("arena slot %d does not own itself: self=%p slot=%p", i, v.o.self, v)
 		}
 	}
 }
@@ -158,7 +160,7 @@ func TestIntegrityCopyThenRecycleDefaultMode(t *testing.T) {
 	if r.o.kvs != nil || r.a != nil {
 		t.Fatal("reset kept the foreign headers instead of dropping them")
 	}
-	if r.self != nil {
+	if r.o.self != nil {
 		t.Fatal("reset left the contained slot owned")
 	}
 
@@ -170,12 +172,12 @@ func TestIntegrityCopyThenRecycleDefaultMode(t *testing.T) {
 	// The slot comes back with fresh headers.
 	v := recipient.NewObject()
 	if v != r {
-		t.Skip("allocator did not hand back the same slot")
+		t.Fatalf("expected the arena to hand back the contained slot %p, got %p", r, v)
 	}
 	if cap(v.o.kvs) != 0 || cap(v.a) != 0 {
 		t.Fatalf("recycled slot kept storage: members cap %d, children cap %d", cap(v.o.kvs), cap(v.a))
 	}
-	if v.self != v || v.o.self != v {
+	if v.o.self != v {
 		t.Fatal("recycled slot is not self owned")
 	}
 }
@@ -305,7 +307,7 @@ func TestSetStringValueOnFormerObject(t *testing.T) {
 	if &v.o.kvs[0] != &members[0] || len(v.o.kvs) != len(members) {
 		t.Fatal("member storage changed identity")
 	}
-	if v.o.self != v || v.self != v {
+	if v.o.self != v {
 		t.Fatal("node stopped owning its own storage")
 	}
 
@@ -340,8 +342,125 @@ func TestNoCopyIsZeroSized(t *testing.T) {
 	if got := unsafe.Sizeof(noCopy{}); got != 0 {
 		t.Fatalf("noCopy occupies %d bytes; the copy guard must be free", got)
 	}
-	// Placed first in Value, so it adds no padding either.
-	if unsafe.Offsetof(Value{}.self) != 0 {
+	// Placed first in each struct, so it adds no padding either.
+	if unsafe.Offsetof(Value{}.o) != 0 {
 		t.Fatal("noCopy shifted the first real field of Value")
+	}
+	if unsafe.Offsetof(Object{}.self) != 0 {
+		t.Fatal("noCopy shifted the first real field of Object")
+	}
+}
+
+func TestChunkRequestFitsSizeClass(t *testing.T) {
+	// The first chunk of every cache is allocated at this capacity, so the
+	// request must land at or under the 32768 byte size class rather than
+	// just over it.
+	const sizeClass = 32768
+	got := unsafe.Sizeof(Value{}) * preAllocatedCacheSize
+	if got > sizeClass {
+		t.Fatalf("first chunk requests %d bytes for %d slots of %d; want at most %d",
+			got, preAllocatedCacheSize, unsafe.Sizeof(Value{}), sizeClass)
+	}
+	if got+unsafe.Sizeof(Value{}) <= sizeClass {
+		t.Fatalf("first chunk requests %d bytes and another slot would still fit under %d",
+			got, sizeClass)
+	}
+}
+
+// TestIntegrityObjectCopyIsContainedAtReset covers the shape that a Value only
+// ownership word would miss: the value keeps its own slot, but the object
+// embedded in it names another value's members.
+func TestIntegrityObjectCopyIsContainedAtReset(t *testing.T) {
+	var a Arena
+	donor := a.NewObject()
+	donor.Set("k", a.NewNumberInt(1))
+	target := a.NewObject()
+	copyObjectStruct(target.GetObject(), donor.GetObject())
+
+	before := IntegrityHealCount()
+	a.Reset()
+	if got := IntegrityHealCount(); got <= before {
+		t.Fatalf("reset did not contain the copied object: count %d -> %d", before, got)
+	}
+	if target.o.kvs != nil {
+		t.Fatal("reset kept the foreign member header")
+	}
+
+	// The allocator is usable afterwards: the aborted walk would otherwise
+	// leave the chunk untruncated and every later reset would fail.
+	if len(a.c.vs) != 0 {
+		t.Fatalf("reset left %d slots handed out", len(a.c.vs))
+	}
+	root := a.NewObject()
+	root.Set("k2", a.NewNumberInt(2))
+	if got := root.String(); got != `{"k2":2}` {
+		t.Fatalf("arena unusable after containment: %s", got)
+	}
+	a.Reset()
+	if len(a.c.vs) != 0 {
+		t.Fatal("a later reset did not truncate the chunk")
+	}
+}
+
+func TestIntegrityObjectCopyIsContainedAtPoolPut(t *testing.T) {
+	var ap ArenaPool
+	a := ap.Get()
+	donor := a.NewObject()
+	donor.Set("k", a.NewNumberInt(1))
+	target := a.NewObject()
+	copyObjectStruct(target.GetObject(), donor.GetObject())
+
+	before := IntegrityHealCount()
+	ap.Put(a)
+	if got := IntegrityHealCount(); got <= before {
+		t.Fatalf("Put did not contain the copied object: count %d -> %d", before, got)
+	}
+
+	reused := ap.Get()
+	root := reused.NewObject()
+	root.Set("k2", a.NewNumberInt(2))
+	if got := root.String(); got != `{"k2":2}` {
+		t.Fatalf("pooled arena unusable after containment: %s", got)
+	}
+}
+
+func TestIntegrityObjectCopyStrictMode(t *testing.T) {
+	withStrictIntegrity(t, true)
+
+	var a Arena
+	donor := a.NewObject()
+	donor.Set("k", a.NewNumberInt(1))
+	target := a.NewObject()
+	copyObjectStruct(target.GetObject(), donor.GetObject())
+
+	err := recoverIntegrity(t, func() { a.Reset() })
+	if err == nil {
+		t.Fatal("strict mode did not report the copied object at reset")
+	}
+	if err.Site != "Value.reset" {
+		t.Fatalf("unexpected site: %s", err.Site)
+	}
+}
+
+func TestIntegrityObjectCopyIsSeenByEveryEntryPoint(t *testing.T) {
+	var a Arena
+	donor := a.NewObject()
+	donor.Set("k", a.NewNumberInt(1))
+	target := a.NewObject()
+	copyObjectStruct(target.GetObject(), donor.GetObject())
+
+	for _, c := range []struct {
+		name string
+		f    func()
+	}{
+		{"Value.Set", func() { target.Set("x", a.NewNumberInt(1)) }},
+		{"Value.MarshalTo", func() { target.MarshalTo(nil) }},
+		{"Object.Get", func() { target.o.Get("k") }},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if err := recoverIntegrity(t, c.f); err == nil {
+				t.Fatalf("%s did not report the copied object", c.name)
+			}
+		})
 	}
 }

@@ -79,7 +79,10 @@ func (c *cache) reset() {
 }
 
 const (
-	preAllocatedCacheSize = 409 // 32kb class size
+	// preAllocatedCacheSize is chosen so the first chunk request lands in
+	// the 32768 byte size class: 372 slots of 88 bytes is 32736 bytes.
+	// TestChunkRequestFitsSizeClass keeps the two in step.
+	preAllocatedCacheSize = 372
 	macAllocatedCacheSize = 1024
 )
 
@@ -139,11 +142,11 @@ func (c *cache) getValue() *Value {
 		}
 	}
 	v := &readSrc.vs[len(readSrc.vs)-1]
-	// A slot whose value does not own it holds member and child storage
-	// belonging to some other value. Drop those headers rather than reuse
-	// them, so the two values stop naming one backing array.
+	// Ownership is read before it is written: a slot whose value does not
+	// own it holds member and child storage belonging to some other value,
+	// and reusing those headers under a new owner would launder the shared
+	// array into one that looks owned.
 	v.containForeignSlot("cache.getValue")
-	v.self = v
 	v.o.self = v
 	// The caller initialises the type and the payload it needs, but a
 	// recycled slot must not present a previous generation's scalar to a
@@ -546,8 +549,16 @@ func parseRawNumber(s string) (string, string, error) {
 // Object cannot be used from concurrent goroutines.
 // Use per-goroutine parsers or ParserPool instead.
 type Object struct {
-	// self points at the value this object is embedded in, so an object
-	// reached through a copied value can be told from an owned one.
+	// noCopy makes a struct assignment of an Object a vet failure. An
+	// Object reached through GetObject is as copyable a shape as a Value,
+	// and a copy of one is the same defect.
+	noCopy noCopy
+
+	// self points at the value this object is embedded in. An allocator
+	// sets it when it hands the slot out. Ownership of the whole value is
+	// read from this one word: a struct assignment of either the value or
+	// the object alone moves it, so both copies are caught by the same
+	// check.
 	self          *Value
 	kvs           []kv
 	keysUnescaped bool
@@ -713,12 +724,6 @@ type Value struct {
 	// one is always a defect.
 	noCopy noCopy
 
-	// self points at the slot this value occupies. An allocator sets it
-	// when it hands the slot out, so a value that was copied into another
-	// slot by struct assignment can be told from an owned one. A nil self
-	// marks a value no allocator handed out.
-	self *Value
-
 	o Object
 	a []*Value
 	s string
@@ -739,8 +744,15 @@ func (v *Value) reset() {
 		v.t = 0
 		return
 	}
-	v.o.Reset()
-	v.resetArray()
+	// Cleared in place rather than through Object.Reset and resetArray:
+	// those check ownership and panic, and a panic here would abandon the
+	// cache walk with the chunk untruncated, leaving the allocator unable
+	// to reset at all.
+	clear(v.o.kvs)
+	v.o.kvs = v.o.kvs[:0]
+	v.o.keysUnescaped = false
+	clear(v.a)
+	v.a = v.a[:0]
 	v.s = ""
 	v.t = 0
 }
