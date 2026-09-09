@@ -2,6 +2,10 @@ package fastjson
 
 import (
 	"errors"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 	"unsafe"
 )
@@ -464,5 +468,55 @@ func TestIntegrityObjectCopyIsSeenByEveryEntryPoint(t *testing.T) {
 				t.Fatalf("%s did not report the copied object", c.name)
 			}
 		})
+	}
+}
+
+// TestVetReportsValueCopy proves the copy guard is enforceable, not just
+// present: it builds a throwaway module that assigns one Value over another
+// and checks that go vet names the copy. Without it the guard is a struct
+// field nothing ever asks about.
+func TestVetReportsValueCopy(t *testing.T) {
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Skip("go is not on PATH")
+	}
+	checkout, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("cannot resolve the checkout: %s", err)
+	}
+
+	dir := t.TempDir()
+	files := map[string]string{
+		"go.mod": "module fastjsonvetprobe\n\ngo 1.21\n\n" +
+			"require github.com/aperturerobotics/fastjson v0.0.0\n\n" +
+			"replace github.com/aperturerobotics/fastjson => " + checkout + "\n",
+		"main.go": `package main
+
+import "github.com/aperturerobotics/fastjson"
+
+func main() {
+	var a fastjson.Arena
+	dst := a.NewString("dst")
+	src := a.NewString("src")
+	*dst = *src
+	_ = dst
+}
+`,
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatalf("cannot write %s: %s", name, err)
+		}
+	}
+
+	cmd := exec.Command(goBin, "vet", "./...")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		t.Fatalf("go vet accepted a Value copy:\n%s", out)
+	}
+	if !strings.Contains(string(out), "copies lock value") {
+		t.Fatalf("go vet failed for some other reason:\n%s", out)
 	}
 }

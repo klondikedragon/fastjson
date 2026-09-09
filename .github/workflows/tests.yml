@@ -2,10 +2,7 @@ name: Tests
 
 on:
   push:
-    branches: [ "master" ]
   pull_request:
-    # The branches below must be a subset of the branches above
-    branches: [ "master" ]
 
 # Builds images for target boards.
 permissions:
@@ -24,5 +21,9 @@ jobs:
         uses: actions/setup-go@3041bf56c941b39c61721a86cd11f3bb1338122a # v5.2.0
         with:
           go-version: ${{ matrix.go }}
+      - name: Vet Go
+        # go test runs a reduced vet set that leaves out copylocks, which is
+        # what reports a copied Value.
+        run: go vet ./...
       - name: Test Go
         run: go test -v ./...
