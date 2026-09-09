@@ -44,11 +44,13 @@ func (ap *ArenaPool) Get() *Arena {
 	return v.(*Arena)
 }
 
-// Put returns a to ap. This does not automatically reset the Arena.
-// You should either Reset the arena before putting it back into the
-// pool, or you should Reset any arena you get back from Get.
+// Put returns a to ap.
+//
+// Put resets a before pooling it, so the arena buffer and every value
+// slot it owns are released before another caller can obtain them.
 //
 // a and objects created by a cannot be used after a is put into ap.
 func (ap *ArenaPool) Put(a *Arena) {
+	a.Reset()
 	ap.pool.Put(a)
 }

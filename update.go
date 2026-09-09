@@ -127,6 +127,11 @@ func (v *Value) SetArrayItem(idx int, value *Value) {
 	for idx >= len(v.a) {
 		v.a = append(v.a, valueNull)
 	}
+	if value == nil {
+		// Match Object.Set: a nil value is stored as JSON null so that
+		// readers and MarshalTo never meet a nil element.
+		value = valueNull
+	}
 	v.a[idx] = value
 }
 
