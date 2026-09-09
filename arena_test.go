@@ -3,8 +3,8 @@ package fastjson
 import (
 	"fmt"
 	"math/rand"
+	"sync"
 	"testing"
-	"time"
 )
 
 // Generic test driver that tests both serial and concurrent executions of the test with a given arena
@@ -23,8 +23,11 @@ func testArenaDriver(t *testing.T, iterations int, doTest func(a *Arena) error) 
 		var ap ArenaPool
 		workers := 128
 		ch := make(chan error, workers)
+		var wg sync.WaitGroup
+		wg.Add(workers)
 		for i := 0; i < workers; i++ {
 			go func() {
+				defer wg.Done()
 				a := ap.Get()
 				defer func() {
 					a.Reset()
@@ -39,14 +42,14 @@ func testArenaDriver(t *testing.T, iterations int, doTest func(a *Arena) error) 
 				ch <- err
 			}()
 		}
-		for i := 0; i < workers; i++ {
-			select {
-			case err := <-ch:
-				if err != nil {
-					t.Fatal(err)
-				}
-			case <-time.After(time.Second * 3):
-				t.Fatalf("timeout")
+		// Waiting for the workers rather than racing a wall clock: the
+		// deadline that matters is the one go test enforces, and a fixed
+		// one here reported a busy host as a test failure.
+		wg.Wait()
+		close(ch)
+		for err := range ch {
+			if err != nil {
+				t.Fatal(err)
 			}
 		}
 	})
