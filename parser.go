@@ -700,6 +700,14 @@ func (o *Object) ReverseVisit(f func(key []byte, v *Value) bool) {
 	}
 }
 
+// noCopy makes the copylocks analysis in go vet report any assignment or
+// pass by value of a type that embeds it. It is zero sized and generates no
+// code; nothing ever locks it.
+type noCopy struct{}
+
+func (*noCopy) Lock()   {}
+func (*noCopy) Unlock() {}
+
 // Value represents any JSON value.
 //
 // Call Type in order to determine the actual type of the JSON value.
@@ -712,14 +720,6 @@ func (o *Object) ReverseVisit(f func(key []byte, v *Value) bool) {
 // and child storage, so a later write through either reaches both. Use
 // SetStringValue and the Set calls to change a value in place. Copies that do
 // happen are reported as *IntegrityError.
-// noCopy makes the copylocks analysis in go vet report any assignment or
-// pass by value of a type that embeds it. It is zero sized and generates no
-// code; nothing ever locks it.
-type noCopy struct{}
-
-func (*noCopy) Lock()   {}
-func (*noCopy) Unlock() {}
-
 type Value struct {
 	// noCopy is first so that it adds neither size nor padding. A Value
 	// carries member and child storage that only it may name, so copying
