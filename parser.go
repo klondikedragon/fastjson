@@ -633,6 +633,7 @@ func (o *Object) unescapeKeys() {
 
 // Len returns the number of items in the o.
 func (o *Object) Len() int {
+	o.checkIntegrity("Object.Len")
 	return len(o.kvs)
 }
 

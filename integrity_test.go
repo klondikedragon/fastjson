@@ -98,6 +98,7 @@ func TestIntegrityCopyThenMutatePanics(t *testing.T) {
 		{"Value.Get", func() { target.Get("k") }},
 		{"Value.GetObject", func() { target.GetObject() }},
 		{"Object.Get", func() { target.o.Get("k") }},
+		{"Object.Len", func() { target.o.Len() }},
 		{"Object.Visit", func() { target.o.Visit(func([]byte, *Value) {}) }},
 		{"Object.ReverseVisit", func() { target.o.ReverseVisit(func([]byte, *Value) bool { return true }) }},
 		{"Value.MarshalTo", func() { target.MarshalTo(nil) }},
@@ -456,6 +457,7 @@ func TestIntegrityObjectCopyIsSeenByEveryEntryPoint(t *testing.T) {
 		{"Value.Set", func() { target.Set("x", a.NewNumberInt(1)) }},
 		{"Value.MarshalTo", func() { target.MarshalTo(nil) }},
 		{"Object.Get", func() { target.o.Get("k") }},
+		{"Object.Len", func() { target.o.Len() }},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if err := recoverIntegrity(t, c.f); err == nil {
