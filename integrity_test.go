@@ -421,9 +421,12 @@ func TestIntegrityObjectCopyIsContainedAtPoolPut(t *testing.T) {
 		t.Fatalf("Put did not contain the copied object: count %d -> %d", before, got)
 	}
 
+	// Nothing built before the Put is touched again, and neither is the
+	// handle: the pool may hand back this arena or another one, and only
+	// what Get returns may be used.
 	reused := ap.Get()
 	root := reused.NewObject()
-	root.Set("k2", a.NewNumberInt(2))
+	root.Set("k2", reused.NewNumberInt(2))
 	if got := root.String(); got != `{"k2":2}` {
 		t.Fatalf("pooled arena unusable after containment: %s", got)
 	}

@@ -126,14 +126,14 @@ that is the supported replacement for assigning a whole value over another.
 
 The checks and the reset they go with are not free.
 Measured against the same tree without them, single core, alternating order,
-minimum of twelve runs on two machines:
+twelve runs per tree on each of two machines; the bands span both:
 
 | benchmark | cost |
 |---|---|
 | `Parse` small, medium, large, twitter | +15% to +31% |
 | `Parse` canada | +37% to +56% |
 | `MarshalTo` small, large, twitter | within noise |
-| `MarshalTo` canada | +17% |
+| `MarshalTo` canada | +17% to +36% |
 | `ArenaTypicalUse` | +12% |
 | allocations per operation | unchanged |
 
