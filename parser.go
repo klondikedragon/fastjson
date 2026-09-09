@@ -566,8 +566,10 @@ type Object struct {
 
 // Reset removes all values from this object.
 //
-// Members are cleared before the slice is truncated so that o stops
-// referring to the keys and values it held.
+// Members are cleared before the slice is truncated, so no member the object
+// held is still reachable inside the retained capacity. Every site that
+// shortens the member slice does the same, which is what lets a reset clear
+// only up to len.
 func (o *Object) Reset() {
 	o.checkIntegrity("Object.Reset")
 	clear(o.kvs)
@@ -759,8 +761,9 @@ func (v *Value) reset() {
 
 // resetArray drops the child references held by v and truncates the slice.
 //
-// Clearing before truncating keeps the invariant that no element beyond len
-// still refers to a value from an earlier generation.
+// Clearing before truncating upholds the invariant every site that shortens
+// the child slice shares: nothing inside the retained capacity refers to a
+// value from an earlier generation.
 func (v *Value) resetArray() {
 	v.checkIntegrity("Value.resetArray")
 	clear(v.a)

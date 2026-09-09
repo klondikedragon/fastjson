@@ -15,7 +15,7 @@ func (o *Object) Del(key string) {
 		// Fast path - try searching for the key without object keys unescaping.
 		for i, kv := range o.kvs {
 			if kv.k == key {
-				o.kvs = append(o.kvs[:i], o.kvs[i+1:]...)
+				o.delMemberAt(i)
 				return
 			}
 		}
@@ -26,10 +26,22 @@ func (o *Object) Del(key string) {
 
 	for i, kv := range o.kvs {
 		if kv.k == key {
-			o.kvs = append(o.kvs[:i], o.kvs[i+1:]...)
+			o.delMemberAt(i)
 			return
 		}
 	}
+}
+
+// delMemberAt removes the member at i and clears the entry the tail vacated.
+//
+// Shortening the slice alone would leave the last member reachable inside the
+// retained capacity, where a later reset, which clears only up to len, would
+// never reach it.
+func (o *Object) delMemberAt(i int) {
+	kvs := o.kvs
+	copy(kvs[i:], kvs[i+1:])
+	kvs[len(kvs)-1] = kv{}
+	o.kvs = kvs[:len(kvs)-1]
 }
 
 // DelMany deletes all entries from o who are present in the given keysToDelete set.
@@ -50,6 +62,9 @@ func (o *Object) DelMany(keysToDelete map[string]struct{}) int {
 			numDeleted++
 		}
 	}
+	// Clear what the surviving members were compacted over, so no deleted
+	// member is left reachable inside the retained capacity.
+	clear(o.kvs[nextUsedIndex:])
 	o.kvs = o.kvs[:nextUsedIndex]
 	return numDeleted
 }
@@ -69,7 +84,11 @@ func (v *Value) Del(key string) {
 		if err != nil || n < 0 || n >= len(v.a) {
 			return
 		}
-		v.a = append(v.a[:n], v.a[n+1:]...)
+		// The tail moves down by one; clear the child the move vacated.
+		a := v.a
+		copy(a[n:], a[n+1:])
+		a[len(a)-1] = nil
+		v.a = a[:len(a)-1]
 	}
 }
 
@@ -152,6 +171,9 @@ func (v *Value) SetArrayLength(length int) {
 		v.a = append(v.a, valueNull)
 	}
 	if len(v.a) > length {
+		// Clear the children being cut off, so they are not left
+		// reachable inside the retained capacity.
+		clear(v.a[length:])
 		v.a = v.a[:length]
 	}
 }

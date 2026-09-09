@@ -2,6 +2,7 @@ package fastjson
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"unsafe"
@@ -212,5 +213,84 @@ func TestResetDropsExternalByteSliceReferences(t *testing.T) {
 				}
 			}
 		}
+	})
+}
+
+// assertNoRetainedReferences checks that no slot in any chunk of c holds a
+// member or a child anywhere inside its capacity. After a reset every slice is
+// empty, so anything still reachable there was left behind by a site that
+// shortened a slice without clearing what it dropped.
+func assertNoRetainedReferences(t *testing.T, c *cache) {
+	t.Helper()
+	var zero kv
+	for i, v := range allSlots(c) {
+		for j, m := range v.o.kvs[:cap(v.o.kvs)] {
+			if m != zero {
+				t.Fatalf("slot %d retains member %d after reset: key %q value %p", i, j, m.k, m.v)
+			}
+		}
+		for j, child := range v.a[:cap(v.a)] {
+			if child != nil {
+				t.Fatalf("slot %d retains child %d after reset: %p", i, j, child)
+			}
+		}
+	}
+}
+
+func TestResetAfterDeletionsRetainsNothing(t *testing.T) {
+	// A value from another allocator, so a reference left inside retained
+	// capacity would hold a whole second allocator reachable.
+	var other Arena
+	lent := other.NewString("lent")
+
+	t.Run("arena", func(t *testing.T) {
+		var a Arena
+		o := a.NewObject()
+		for i := 0; i < 32; i++ {
+			o.Set(fmt.Sprintf("k%d", i), a.NewNumberInt(i))
+		}
+		o.Set("lent", lent)
+		o.Del("lent")
+		o.Del("k0")
+		o.GetObject().DelMany(map[string]struct{}{"k1": {}, "k2": {}, "k3": {}})
+
+		arr := a.NewArray()
+		for i := 0; i < 32; i++ {
+			arr.SetArrayItem(i, a.NewNumberInt(i))
+		}
+		arr.SetArrayItem(8, lent)
+		arr.Del("8")
+		arr.SetArrayLength(4)
+
+		a.Reset()
+		assertNoRetainedReferences(t, &a.c)
+	})
+
+	t.Run("parser", func(t *testing.T) {
+		var p Parser
+		v, err := p.Parse(bigDocument(200))
+		if err != nil {
+			t.Fatalf("cannot parse: %s", err)
+		}
+		for i := 0; i < 20; i++ {
+			item := v.Get(strconv.Itoa(i))
+			if item == nil {
+				t.Fatalf("missing item %d", i)
+			}
+			item.Set("lent", lent)
+			item.Del("lent")
+			item.Del("n")
+			item.GetObject().DelMany(map[string]struct{}{"a": {}})
+			arr := v.Get(strconv.Itoa(i+20), "a")
+			if arr != nil {
+				arr.SetArrayItem(1, lent)
+				arr.Del("1")
+				arr.SetArrayLength(1)
+			}
+		}
+		v.SetArrayLength(10)
+
+		p.c.reset()
+		assertNoRetainedReferences(t, &p.c)
 	})
 }
