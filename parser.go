@@ -139,6 +139,12 @@ func (c *cache) getValue() *Value {
 		}
 	}
 	v := &readSrc.vs[len(readSrc.vs)-1]
+	// A slot whose value does not own it holds member and child storage
+	// belonging to some other value. Drop those headers rather than reuse
+	// them, so the two values stop naming one backing array.
+	v.containForeignSlot("cache.getValue")
+	v.self = v
+	v.o.self = v
 	// The caller initialises the type and the payload it needs, but a
 	// recycled slot must not present a previous generation's scalar to a
 	// caller that only sets one of the two fields.
@@ -540,6 +546,9 @@ func parseRawNumber(s string) (string, string, error) {
 // Object cannot be used from concurrent goroutines.
 // Use per-goroutine parsers or ParserPool instead.
 type Object struct {
+	// self points at the value this object is embedded in, so an object
+	// reached through a copied value can be told from an owned one.
+	self          *Value
 	kvs           []kv
 	keysUnescaped bool
 }
@@ -549,6 +558,7 @@ type Object struct {
 // Members are cleared before the slice is truncated so that o stops
 // referring to the keys and values it held.
 func (o *Object) Reset() {
+	o.checkIntegrity("Object.Reset")
 	clear(o.kvs)
 	o.kvs = o.kvs[:0]
 	o.keysUnescaped = false
@@ -556,6 +566,7 @@ func (o *Object) Reset() {
 
 // MarshalTo appends marshaled o to dst and returns the result.
 func (o *Object) MarshalTo(dst []byte) []byte {
+	o.checkIntegrity("Object.MarshalTo")
 	dst = append(dst, '{')
 	for i, kv := range o.kvs {
 		if o.keysUnescaped {
@@ -618,6 +629,7 @@ func (o *Object) Len() int {
 //
 // The returned value is valid until Parse is called on the Parser returned o.
 func (o *Object) Get(key string) *Value {
+	o.checkIntegrity("Object.Get")
 	if !o.keysUnescaped && strings.IndexByte(key, '\\') < 0 {
 		// Fast path - try searching for the key without object keys unescaping.
 		for _, kv := range o.kvs {
@@ -646,6 +658,7 @@ func (o *Object) Visit(f func(key []byte, v *Value)) {
 	if o == nil {
 		return
 	}
+	o.checkIntegrity("Object.Visit")
 
 	o.unescapeKeys()
 
@@ -662,6 +675,7 @@ func (o *Object) ReverseVisit(f func(key []byte, v *Value) bool) {
 	if o == nil {
 		return
 	}
+	o.checkIntegrity("Object.ReverseVisit")
 
 	o.unescapeKeys()
 
@@ -679,7 +693,19 @@ func (o *Object) ReverseVisit(f func(key []byte, v *Value) bool) {
 //
 // Value cannot be used from concurrent goroutines.
 // Use per-goroutine parsers or ParserPool instead.
+//
+// A Value is used through the pointer an Arena or Parser returns and must
+// never be copied by struct assignment: the copy names the original's member
+// and child storage, so a later write through either reaches both. Use
+// SetStringValue and the Set calls to change a value in place. Copies that do
+// happen are reported as *IntegrityError.
 type Value struct {
+	// self points at the slot this value occupies. An allocator sets it
+	// when it hands the slot out, so a value that was copied into another
+	// slot by struct assignment can be told from an owned one. A nil self
+	// marks a value no allocator handed out.
+	self *Value
+
 	o Object
 	a []*Value
 	s string
@@ -692,6 +718,14 @@ type Value struct {
 // are dropped, so the backing arrays stay warm without keeping the previous
 // generation's strings and values alive.
 func (v *Value) reset() {
+	// Ownership is settled before anything is written through the retained
+	// headers: clearing through a foreign header would write into storage
+	// that another value still uses.
+	if v.containForeignSlot("Value.reset") {
+		v.s = ""
+		v.t = 0
+		return
+	}
 	v.o.Reset()
 	v.resetArray()
 	v.s = ""
@@ -703,12 +737,14 @@ func (v *Value) reset() {
 // Clearing before truncating keeps the invariant that no element beyond len
 // still refers to a value from an earlier generation.
 func (v *Value) resetArray() {
+	v.checkIntegrity("Value.resetArray")
 	clear(v.a)
 	v.a = v.a[:0]
 }
 
 // MarshalTo appends marshaled v to dst and returns the result.
 func (v *Value) MarshalTo(dst []byte) []byte {
+	v.checkIntegrity("Value.MarshalTo")
 	switch v.t {
 	case typeRawString:
 		dst = append(dst, '"')
@@ -811,6 +847,7 @@ func (t Type) String() string {
 
 // Type returns the type of the v.
 func (v *Value) Type() Type {
+	v.checkIntegrity("Value.Type")
 	if v.t == typeRawString {
 		v.s = unescapeStringBestEffort(v.s)
 		v.t = TypeString
@@ -837,6 +874,7 @@ func (v *Value) Get(keys ...string) *Value {
 	if v == nil {
 		return nil
 	}
+	v.checkIntegrity("Value.Get")
 	for _, key := range keys {
 		if v.t == TypeObject {
 			v = v.o.Get(key)
@@ -849,9 +887,13 @@ func (v *Value) Get(keys ...string) *Value {
 				return nil
 			}
 			v = v.a[n]
+			if v == nil {
+				return nil
+			}
 		} else {
 			return nil
 		}
+		v.checkIntegrity("Value.Get")
 	}
 	return v
 }
@@ -868,6 +910,7 @@ func (v *Value) GetObject(keys ...string) *Object {
 	if v == nil || v.t != TypeObject {
 		return nil
 	}
+	v.checkIntegrity("Value.GetObject")
 	return &v.o
 }
 
@@ -883,6 +926,7 @@ func (v *Value) GetArray(keys ...string) []*Value {
 	if v == nil || v.t != TypeArray {
 		return nil
 	}
+	v.checkIntegrity("Value.GetArray")
 	return v.a
 }
 
@@ -1011,6 +1055,7 @@ func (v *Value) Object() (*Object, error) {
 	if v.t != TypeObject {
 		return nil, fmt.Errorf("value doesn't contain object; it contains %s", v.Type())
 	}
+	v.checkIntegrity("Value.Object")
 	return &v.o, nil
 }
 
@@ -1023,6 +1068,7 @@ func (v *Value) Array() ([]*Value, error) {
 	if v.t != TypeArray {
 		return nil, fmt.Errorf("value doesn't contain array; it contains %s", v.Type())
 	}
+	v.checkIntegrity("Value.Array")
 	return v.a, nil
 }
 

@@ -10,6 +10,7 @@ func (o *Object) Del(key string) {
 	if o == nil {
 		return
 	}
+	o.checkIntegrity("Object.Del")
 	if !o.keysUnescaped && strings.IndexByte(key, '\\') < 0 {
 		// Fast path - try searching for the key without object keys unescaping.
 		for i, kv := range o.kvs {
@@ -37,6 +38,7 @@ func (o *Object) DelMany(keysToDelete map[string]struct{}) int {
 	if o == nil {
 		return 0
 	}
+	o.checkIntegrity("Object.DelMany")
 	o.unescapeKeys()
 	numDeleted := 0
 	nextUsedIndex := 0
@@ -57,6 +59,7 @@ func (v *Value) Del(key string) {
 	if v == nil {
 		return
 	}
+	v.checkIntegrity("Value.Del")
 	if v.t == TypeObject {
 		v.o.Del(key)
 		return
@@ -77,6 +80,7 @@ func (o *Object) Set(key string, value *Value) {
 	if o == nil {
 		return
 	}
+	o.checkIntegrity("Object.Set")
 	if value == nil {
 		value = valueNull
 	}
@@ -104,6 +108,7 @@ func (v *Value) Set(key string, value *Value) {
 	if v == nil {
 		return
 	}
+	v.checkIntegrity("Value.Set")
 	if v.t == TypeObject {
 		v.o.Set(key, value)
 		return
@@ -124,6 +129,7 @@ func (v *Value) SetArrayItem(idx int, value *Value) {
 	if v == nil || v.t != TypeArray {
 		return
 	}
+	v.checkIntegrity("Value.SetArrayItem")
 	for idx >= len(v.a) {
 		v.a = append(v.a, valueNull)
 	}
@@ -141,6 +147,7 @@ func (v *Value) SetArrayLength(length int) {
 	if v == nil || v.t != TypeArray {
 		return
 	}
+	v.checkIntegrity("Value.SetArrayLength")
 	for length > len(v.a) {
 		v.a = append(v.a, valueNull)
 	}
