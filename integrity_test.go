@@ -335,3 +335,13 @@ func TestSetStringValueChecksOwnership(t *testing.T) {
 		t.Fatalf("unexpected site: %s", err.Site)
 	}
 }
+
+func TestNoCopyIsZeroSized(t *testing.T) {
+	if got := unsafe.Sizeof(noCopy{}); got != 0 {
+		t.Fatalf("noCopy occupies %d bytes; the copy guard must be free", got)
+	}
+	// Placed first in Value, so it adds no padding either.
+	if unsafe.Offsetof(Value{}.self) != 0 {
+		t.Fatal("noCopy shifted the first real field of Value")
+	}
+}
