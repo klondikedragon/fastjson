@@ -49,7 +49,7 @@ func (a *Arena) NewObject() *Value {
 func (a *Arena) NewArray() *Value {
 	v := a.c.getValue()
 	v.t = TypeArray
-	v.a = v.a[:0]
+	v.resetArray()
 	return v
 }
 

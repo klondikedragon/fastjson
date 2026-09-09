@@ -59,8 +59,19 @@ type cache struct {
 	lt *cache // last
 }
 
+// reset releases every slot this chunk and every chunk linked after it
+// have handed out.
+//
+// Slots are cleared before the slice is truncated, so a slot that a caller
+// still holds stops referring to strings and values from the previous
+// generation. Clearing only up to len is sufficient: every slot beyond len
+// was itself cleared by the reset that truncated it.
 func (c *cache) reset() {
-	c.vs = c.vs[:0]
+	vs := c.vs
+	for i := range vs {
+		vs[i].reset()
+	}
+	c.vs = vs[:0]
 	c.lt = nil
 	if c.nx != nil {
 		c.nx.reset()
@@ -127,8 +138,13 @@ func (c *cache) getValue() *Value {
 			}
 		}
 	}
-	// Do not reset the value, since the caller must properly init it.
-	return &readSrc.vs[len(readSrc.vs)-1]
+	v := &readSrc.vs[len(readSrc.vs)-1]
+	// The caller initialises the type and the payload it needs, but a
+	// recycled slot must not present a previous generation's scalar to a
+	// caller that only sets one of the two fields.
+	v.s = ""
+	v.t = 0
+	return v
 }
 
 func skipWS(s string) string {
@@ -237,13 +253,13 @@ func parseArray(s string, c *cache, depth int) (*Value, string, error) {
 	if s[0] == ']' {
 		v := c.getValue()
 		v.t = TypeArray
-		v.a = v.a[:0]
+		v.resetArray()
 		return v, s[1:], nil
 	}
 
 	a := c.getValue()
 	a.t = TypeArray
-	a.a = a.a[:0]
+	a.resetArray()
 	for {
 		var v *Value
 		var err error
@@ -528,8 +544,12 @@ type Object struct {
 	keysUnescaped bool
 }
 
-// Removes all values from this object
+// Reset removes all values from this object.
+//
+// Members are cleared before the slice is truncated so that o stops
+// referring to the keys and values it held.
 func (o *Object) Reset() {
+	clear(o.kvs)
 	o.kvs = o.kvs[:0]
 	o.keysUnescaped = false
 }
@@ -664,6 +684,27 @@ type Value struct {
 	a []*Value
 	s string
 	t Type
+}
+
+// reset returns v to the zero value, dropping every reference it holds.
+//
+// Member and child storage is kept for reuse; only the references inside it
+// are dropped, so the backing arrays stay warm without keeping the previous
+// generation's strings and values alive.
+func (v *Value) reset() {
+	v.o.Reset()
+	v.resetArray()
+	v.s = ""
+	v.t = 0
+}
+
+// resetArray drops the child references held by v and truncates the slice.
+//
+// Clearing before truncating keeps the invariant that no element beyond len
+// still refers to a value from an earlier generation.
+func (v *Value) resetArray() {
+	clear(v.a)
+	v.a = v.a[:0]
 }
 
 // MarshalTo appends marshaled v to dst and returns the result.
