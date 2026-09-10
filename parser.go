@@ -79,10 +79,10 @@ func (c *cache) reset() {
 }
 
 const (
-	// preAllocatedCacheSize is chosen so the first chunk request lands in
-	// the 32768 byte size class: 372 slots of 88 bytes is 32736 bytes.
-	// TestChunkRequestFitsSizeClass keeps the two in step.
-	preAllocatedCacheSize = 372
+	// preAllocatedCacheSize is the first Value chunk. 64 slots is 5632 bytes
+	// at 88 bytes per Value. Request-local ingest owners discard the chunk at
+	// request end, so packing into the 32768 byte class is the wrong trade.
+	preAllocatedCacheSize = 64
 	macAllocatedCacheSize = 1024
 )
 

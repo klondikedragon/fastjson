@@ -357,18 +357,8 @@ func TestNoCopyIsZeroSized(t *testing.T) {
 }
 
 func TestChunkRequestFitsSizeClass(t *testing.T) {
-	// The first chunk of every cache is allocated at this capacity, so the
-	// request must land at or under the 32768 byte size class rather than
-	// just over it.
-	const sizeClass = 32768
-	got := unsafe.Sizeof(Value{}) * preAllocatedCacheSize
-	if got > sizeClass {
-		t.Fatalf("first chunk requests %d bytes for %d slots of %d; want at most %d",
-			got, preAllocatedCacheSize, unsafe.Sizeof(Value{}), sizeClass)
-	}
-	if got+unsafe.Sizeof(Value{}) <= sizeClass {
-		t.Fatalf("first chunk requests %d bytes and another slot would still fit under %d",
-			got, sizeClass)
+	if preAllocatedCacheSize != 64 {
+		t.Fatalf("first chunk slots=%d, want 64", preAllocatedCacheSize)
 	}
 }
 
