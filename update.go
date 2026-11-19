@@ -42,6 +42,7 @@ func (o *Object) delMemberAt(i int) {
 	copy(kvs[i:], kvs[i+1:])
 	kvs[len(kvs)-1] = kv{}
 	o.kvs = kvs[:len(kvs)-1]
+	o.dropIndex()
 }
 
 // DelMany deletes all entries from o who are present in the given keysToDelete set.
@@ -66,6 +67,9 @@ func (o *Object) DelMany(keysToDelete map[string]struct{}) int {
 	// member is left reachable inside the retained capacity.
 	clear(o.kvs[nextUsedIndex:])
 	o.kvs = o.kvs[:nextUsedIndex]
+	if numDeleted > 0 {
+		o.dropIndex()
+	}
 	return numDeleted
 }
 
@@ -106,18 +110,18 @@ func (o *Object) Set(key string, value *Value) {
 	o.unescapeKeys()
 
 	// Try substituting already existing entry with the given key.
-	for i := range o.kvs {
-		kv := &o.kvs[i]
-		if kv.k == key {
-			kv.v = value
-			return
-		}
+	if i := o.indexOf(key); i >= 0 {
+		o.kvs[i].v = value
+		return
 	}
 
 	// Add new entry.
 	kv := o.getKV()
 	kv.k = key
 	kv.v = value
+	if o.index != nil {
+		o.index[key] = len(o.kvs) - 1
+	}
 }
 
 // Set sets (key, value) entry in the array or object v.

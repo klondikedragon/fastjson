@@ -578,6 +578,64 @@ type Object struct {
 	self          *Value
 	kvs           []kv
 	keysUnescaped bool
+	// scanned counts members compared by linear key searches since the index was last dropped
+	// (see indexOf). It fits in keysUnescaped's padding, so it adds no size.
+	scanned uint32
+	// index maps each key to the position of its first member. It exists only for an object
+	// whose keys are unescaped and that has been searched linearly many times over its length,
+	// so an object built up one key at a time (Get, then Set) costs linear rather than
+	// quadratic time; every change that moves or removes members drops it.
+	index map[string]int
+}
+
+// objectIndexMinLen is the member count below which an object is always searched linearly: a
+// short scan is cheaper than building and keeping a map.
+const objectIndexMinLen = 32
+
+// objectIndexScans is how many lengths' worth of linear comparisons an object pays before it
+// builds its index, so an object searched only a few times never allocates one and the scans
+// before the index exists cost at most this multiple of the object's length.
+const objectIndexScans = 8
+
+// indexOf returns the position of the first member whose key is key, or -1, for an object whose
+// keys are unescaped. It answers from the index when the object has one and otherwise scans,
+// building the index once the scans have covered objectIndexScans times its length.
+func (o *Object) indexOf(key string) int {
+	if o.index != nil {
+		if i, ok := o.index[key]; ok {
+			return i
+		}
+		return -1
+	}
+	if n := len(o.kvs); n >= objectIndexMinLen && uint64(o.scanned)+uint64(n) > uint64(objectIndexScans)*uint64(n) {
+		o.index = make(map[string]int, n)
+		for i := range o.kvs {
+			if _, seen := o.index[o.kvs[i].k]; !seen {
+				o.index[o.kvs[i].k] = i
+			}
+		}
+		return o.indexOf(key)
+	}
+	for i := range o.kvs {
+		if o.kvs[i].k == key {
+			o.addScanned(i + 1)
+			return i
+		}
+	}
+	o.addScanned(len(o.kvs))
+	return -1
+}
+
+func (o *Object) addScanned(n int) {
+	if uint64(o.scanned)+uint64(n) < 1<<32 {
+		o.scanned += uint32(n)
+	}
+}
+
+// dropIndex forgets the index and the scan count, after members moved or were removed.
+func (o *Object) dropIndex() {
+	o.index = nil
+	o.scanned = 0
 }
 
 // Reset removes all values from this object.
@@ -591,6 +649,7 @@ func (o *Object) Reset() {
 	clear(o.kvs)
 	o.kvs = o.kvs[:0]
 	o.keysUnescaped = false
+	o.dropIndex()
 }
 
 // MarshalTo appends marshaled o to dst and returns the result.
@@ -672,10 +731,8 @@ func (o *Object) Get(key string) *Value {
 	// Slow path - unescape object keys.
 	o.unescapeKeys()
 
-	for _, kv := range o.kvs {
-		if kv.k == key {
-			return kv.v
-		}
+	if i := o.indexOf(key); i >= 0 {
+		return o.kvs[i].v
 	}
 	return nil
 }
@@ -770,6 +827,7 @@ func (v *Value) reset() {
 	clear(v.o.kvs)
 	v.o.kvs = v.o.kvs[:0]
 	v.o.keysUnescaped = false
+	v.o.dropIndex()
 	clear(v.a)
 	v.a = v.a[:0]
 	v.s = ""

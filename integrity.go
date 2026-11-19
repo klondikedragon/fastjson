@@ -88,6 +88,7 @@ func (o *Object) checkIntegrity(site string) {
 func (v *Value) dropForeignHeaders() {
 	v.o.kvs = nil
 	v.o.keysUnescaped = false
+	v.o.dropIndex()
 	v.o.self = nil
 	v.a = nil
 	integrityHeals.Add(1)
