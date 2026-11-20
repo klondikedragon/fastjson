@@ -588,14 +588,27 @@ type Object struct {
 	index map[string]int
 }
 
-// objectIndexMinLen is the member count below which an object is always searched linearly: a
-// short scan is cheaper than building and keeping a map.
-const objectIndexMinLen = 32
+// objectIndexMinLen is the member count below which an object is always searched linearly. The
+// default comes from BenchmarkObjectIndex: an index forced on loses to the linear search below
+// about 100 members when an object is built one Get and Set at a time, below about 45 when a
+// parsed object gains members that way, and at every size for a handful of reads; 256 keeps
+// ordinary objects off the index with margin and still removes the quadratic for thousands of
+// members. SetObjectIndexMinLen changes it.
+var objectIndexMinLen = 256
 
 // objectIndexScans is how many lengths' worth of linear comparisons an object pays before it
 // builds its index, so an object searched only a few times never allocates one and the scans
-// before the index exists cost at most this multiple of the object's length.
-const objectIndexScans = 8
+// before the index exists cost at most this multiple of the object's length. It is fixed: past
+// objectIndexMinLen an object searched this often is already paying more for its scans than
+// the index costs to build.
+var objectIndexScans = 8
+
+// SetObjectIndexMinLen sets the member count from which an object may index its keys (see
+// Object.Get). Call it once at startup, before any parsing: it is not safe while objects are
+// in use.
+func SetObjectIndexMinLen(n int) {
+	objectIndexMinLen = n
+}
 
 // indexOf returns the position of the first member whose key is key, or -1, for an object whose
 // keys are unescaped. It answers from the index when the object has one and otherwise scans,

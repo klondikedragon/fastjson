@@ -62,6 +62,10 @@ func (l *linearObject) marshal() string {
 // starting from parsed objects that carry duplicate and escaped keys, give the same answers and
 // the same marshalled bytes, member order included, as the linear search.
 func TestObjectIndexMatchesLinearSearch(t *testing.T) {
+	// A low minimum makes the index appear at the sizes this test reaches; the logic does not
+	// depend on the value.
+	defer func(saved int) { objectIndexMinLen = saved }(objectIndexMinLen)
+	objectIndexMinLen = 32
 	indexed := 0
 	for seed := int64(1); seed <= 40; seed++ {
 		rng := rand.New(rand.NewSource(seed))
@@ -166,5 +170,22 @@ func TestObjectIndexBoundsBuildUp(t *testing.T) {
 	_ = parsed.Get("absent")
 	if parsed.index == nil {
 		t.Fatal("past objectIndexScans lengths of scanning the object must build its index")
+	}
+}
+
+// SetObjectIndexMinLen moves the size from which objects index: above an object's size, the
+// same build-up that indexes at the default never does.
+func TestSetObjectIndexMinLen(t *testing.T) {
+	defer SetObjectIndexMinLen(objectIndexMinLen)
+	SetObjectIndexMinLen(1 << 20)
+	var a Arena
+	o := a.NewObject().GetObject()
+	for i := 0; i < 2000; i++ {
+		k := "k" + strconv.Itoa(i)
+		_ = o.Get(k)
+		o.Set(k, a.NewNull())
+	}
+	if o.index != nil {
+		t.Fatal("an object below the minimum length must not build an index")
 	}
 }
